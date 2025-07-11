@@ -10,12 +10,7 @@ import pytesseract
 import requests
 from config import Config
 
-# --- הגדרות ראשוניות ---
-try:
-    Config.validate()
-except AttributeError:
-    pass
-
+# --- הגדרות בסיס ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO').upper())
@@ -28,12 +23,15 @@ if os.getenv('TESSERACT_PATH'):
 # --- אתחול Flask ---
 app = Flask(__name__)
 
-# --- לוגיקת הבוט ---
+# --- אתחול הבוט ---
+application = Application.builder().token(Config.BOT_TOKEN).build()
+
+# --- פקודות הבוט ---
 async def start(update: Update, context):
-    await update.message.reply_text(os.getenv('WELCOME_MESSAGE', 'Welcome! Send me an image to extract text.'))
+    await update.message.reply_text(os.getenv('WELCOME_MESSAGE', '👋 ברוכים הבאים! שלחו לי תמונה ואזהה את הטקסט שבה.'))
 
 async def help_command(update: Update, context):
-    await update.message.reply_text(os.getenv('HELP_MESSAGE', 'Send a photo and I will extract the text. That\'s it!'))
+    await update.message.reply_text(os.getenv('HELP_MESSAGE', '📸 שלחו תמונה עם טקסט ואחזיר לכם את מה שמופיע בה.'))
 
 async def handle_photo(update: Update, context):
     try:
@@ -53,22 +51,18 @@ async def handle_photo(update: Update, context):
             await update.message.reply_text("❌ לא נמצא טקסט בתמונה.")
     except Exception as e:
         logger.error(f"שגיאה בעיבוד תמונה: {e}")
-        try:
-            await update.message.reply_text("❌ אירעה שגיאה בעיבוד התמונה.")
-        except Exception as inner_e:
-            logger.error(f"Failed to send error message: {inner_e}")
+        await update.message.reply_text("❌ אירעה שגיאה בעיבוד התמונה.")
 
 async def handle_text(update: Update, context):
-    await update.message.reply_text("📸 אנא שלחו תמונה כדי לחלץ ממנה טקסט.")
+    await update.message.reply_text("📸 שלחו תמונה כדי שאזהה את הטקסט שבה.")
 
-# --- אתחול הבוט ---
-application = Application.builder().token(Config.BOT_TOKEN).build()
+# --- רישום handlers ---
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("help", help_command))
 application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-# --- נתיבי Flask ---
+# --- מסלולים של Flask ---
 @app.route('/webhook', methods=['POST'])
 async def webhook():
     update_data = request.get_json()
@@ -83,22 +77,12 @@ def health_check():
 def index():
     return jsonify({"message": "Bot is running and listening for webhooks"}), 200
 
-# --- פונקציית הרצה מותאמת ---
-async def run_bot():
-    webhook_url = os.getenv('WEBHOOK_URL')
-    if webhook_url:
-        await application.initialize()
-        await application.bot.set_webhook(
-            url=f"{webhook_url}/webhook",
-            allowed_updates=Update.ALL_TYPES
-        )
-        logger.info(f"✅ Webhook set to: {webhook_url}/webhook")
-        port = int(os.getenv('PORT', 8080))
-        app.run(host='0.0.0.0', port=port)
-    else:
-        logger.info("🟡 No WEBHOOK_URL found, running in polling mode...")
-        await application.run_polling()
-
-# --- נקודת כניסה ---
-if __name__ == '__main__':
-    asyncio.run(run_bot())
+# --- רישום ה־Webhook כששרת עולה ---
+webhook_url = os.getenv('WEBHOOK_URL')
+if webhook_url:
+    asyncio.get_event_loop().create_task(application.initialize())
+    asyncio.get_event_loop().create_task(application.bot.set_webhook(
+        url=f"{webhook_url}/webhook",
+        allowed_updates=Update.ALL_TYPES
+    ))
+    logger.info(f"✅ Webhook set to: {webhook_url}/webhook")
