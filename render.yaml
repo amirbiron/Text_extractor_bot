@@ -4,15 +4,15 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python -u deploy.py  # ודא שהשם תואם לשם הקובץ שלך
+    startCommand: python deploy.py # ודא שהשם תואם לשם הקובץ שלך
     autoDeploy: true
     envVars:
       - key: BOT_TOKEN
-        sync: false  # יש להגדיר דרך לוח הבקרה
+        sync: false
       - key: WEBHOOK_URL
         fromService:
           type: web
           name: telegram-ocr-bot
           property: url
       - key: PORT
-        value: "8080" # הפורט שהשרת יאזין לו
+        value: "8080"
