@@ -4,7 +4,7 @@ import io
 import asyncio
 from flask import Flask, request, jsonify
 from telegram import Update
-from telegram.ext import Application
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from PIL import Image
 import pytesseract
 import requests
