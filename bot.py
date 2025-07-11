@@ -6,16 +6,21 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from PIL import Image
 import pytesseract
 import requests
+from config import Config
+
+# בדיקת תקינות ההגדרות
+Config.validate()
 
 # הגדרת לוגים
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=getattr(logging, Config.LOG_LEVEL)
 )
 logger = logging.getLogger(__name__)
 
 # הגדרת נתיב Tesseract (עבור Windows)
-# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+if Config.TESSERACT_PATH:
+    pytesseract.pytesseract.tesseract_cmd = Config.TESSERACT_PATH
 
 class TelegramOCRBot:
     def __init__(self, token: str):
@@ -33,40 +38,11 @@ class TelegramOCRBot:
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פונקציית התחלה"""
-        welcome_text = """
-🤖 ברוכים הבאים לבוט חילוץ טקסט מתמונות!
-
-📸 שלחו לי תמונה ואני אחלץ את הטקסט שבתוכה
-🔤 הבוט תומך בעברית ובאנגלית
-📄 אפשר לשלוח תמונות כקובץ או כתמונה רגילה
-
-📋 פקודות זמינות:
-/start - הודעת פתיחה
-/help - עזרה ומידע נוסף
-
-פשוט שלחו תמונה והתחילו! 🚀
-        """
-        await update.message.reply_text(welcome_text)
+        await update.message.reply_text(Config.WELCOME_MESSAGE)
     
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פונקציית עזרה"""
-        help_text = """
-📖 איך להשתמש בבוט:
-
-1️⃣ שלחו תמונה (כתמונה רגילה או כקובץ)
-2️⃣ חכו שהבוט יעבד את התמונה
-3️⃣ תקבלו את הטקסט שנמצא בתמונה
-
-💡 טיפים:
-• תמונות ברורות יותר נותנות תוצאות טובות יותר
-• טקסט גדול וברור יחולץ טוב יותר
-• הבוט תומך בעברית ובאנגלית
-
-🔧 פורמטים נתמכים:
-• JPG, PNG, WEBP, BMP, GIF
-• תמונות שנשלחו כקובץ או כתמונה
-        """
-        await update.message.reply_text(help_text)
+        await update.message.reply_text(Config.HELP_MESSAGE)
     
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בתמונה שנשלחה"""
@@ -160,8 +136,7 @@ class TelegramOCRBot:
                 image = image.convert('RGB')
             
             # חילוץ טקסט עם תמיכה בעברית ובאנגלית
-            # הגדרת שפות: עברית (heb) ואנגלית (eng)
-            custom_config = r'--oem 3 --psm 6 -l heb+eng'
+            custom_config = f'{Config.OCR_CONFIG} -l {Config.OCR_LANGUAGES}'
             text = pytesseract.image_to_string(image, config=custom_config)
             
             return text.strip()
@@ -177,15 +152,8 @@ class TelegramOCRBot:
 
 # פונקציה ראשית
 def main():
-    # כאן תחליפו את המפתח שלכם
-    BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-    
-    if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
-        print("❌ אנא החליפו את BOT_TOKEN במפתח הבוט שלכם")
-        return
-    
     # יצירת והפעלת הבוט
-    bot = TelegramOCRBot(BOT_TOKEN)
+    bot = TelegramOCRBot(Config.BOT_TOKEN)
     bot.run()
 
 if __name__ == "__main__":
