@@ -64,9 +64,11 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_t
 
 # --- מסלולים של Flask ---
 @app.route('/webhook', methods=['POST'])
-async def webhook():
+def webhook():
     update_data = request.get_json()
-    await application.update_queue.put(Update.de_json(update_data, application.bot))
+    asyncio.create_task(
+        application.update_queue.put(Update.de_json(update_data, application.bot))
+    )
     return jsonify({"status": "OK"}), 200
 
 @app.route('/health', methods=['GET'])
