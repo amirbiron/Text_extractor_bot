@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: telegram-ocr-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -u deploy.py
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false  # set in dashboard for security
+      - key: WEBHOOK_URL
+        fromService:
+          type: web
+          name: telegram-ocr-bot
+          property: url
+      - key: PORT
+        value: "8080"
