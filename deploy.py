@@ -27,8 +27,11 @@ def main():
         
         # הדפסת מידע על הפעלה
         port = Config.PORT
-        webhook_url = Config.WEBHOOK_URL
-        
+        # Determine webhook URL (explicit or derived)
+        webhook_url = Config.WEBHOOK_URL or (
+            f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}" if os.getenv('RENDER_EXTERNAL_HOSTNAME') else None
+        )
+
         logger.info(f"📡 Starting webhook bot on port {port}")
         if webhook_url:
             logger.info(f"🔗 Webhook URL: {webhook_url}")

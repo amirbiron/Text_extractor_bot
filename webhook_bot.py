@@ -184,7 +184,14 @@ bot_instance = None
 async def init_bot():
     """אתחול הבוט"""
     global bot_instance
+    # Fallback: if WEBHOOK_URL not explicitly set, try building it from Render's external hostname
     webhook_url = os.getenv('WEBHOOK_URL')
+    if not webhook_url:
+        render_host = os.getenv("RENDER_EXTERNAL_HOSTNAME")
+        if render_host:
+            webhook_url = f"https://{render_host}"
+            logger.info(f"Derived WEBHOOK_URL from RENDER_EXTERNAL_HOSTNAME: {webhook_url}")
+
     bot_instance = TelegramOCRBot(Config.BOT_TOKEN, webhook_url)
     await bot_instance.initialize()
 
