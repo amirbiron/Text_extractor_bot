@@ -23,6 +23,10 @@ class Config:
     OCR_LANGUAGES = 'heb+eng'  # עברית ואנגלית
     OCR_CONFIG = r'--oem 3 --psm 6'
     
+    # הגדרות Webhook (לעיצוב production)
+    WEBHOOK_URL = os.getenv('WEBHOOK_URL')  # כתובת ה-webhook הציבורית
+    PORT = int(os.getenv('PORT', 8080))  # פורט לשרת
+    
     # הודעות
     WELCOME_MESSAGE = """
 🤖 ברוכים הבאים לבוט חילוץ טקסט מתמונות!
@@ -60,5 +64,9 @@ class Config:
         """בדיקת תקינות ההגדרות"""
         if not cls.BOT_TOKEN:
             raise ValueError("BOT_TOKEN is required. Please set it in .env file")
+        
+        # אזהרה אם WEBHOOK_URL לא מוגדר (אבל לא הפסקה)
+        if not cls.WEBHOOK_URL:
+            print("⚠️  WEBHOOK_URL is not set. This is required for production deployment.")
         
         return True
