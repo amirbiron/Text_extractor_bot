@@ -1,49 +1,110 @@
-#!/usr/bin/env python3
-"""
-Deployment script for Telegram OCR Bot
-Uses webhook for production deployment on Render.com
-"""
-
-import os
-import sys
 import logging
-from webhook_bot import main as webhook_main
+import os
+import io
+import json
+from flask import Flask, request, jsonify
+from telegram import Update
+from telegram.ext import Application
+from PIL import Image
+import pytesseract
+import requests
 from config import Config
+import asyncio
 
-# הגדרת לוגים
+# --- הגדרות ראשוניות ---
+Config.validate()
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=getattr(logging, Config.LOG_LEVEL)
 )
 logger = logging.getLogger(__name__)
+if Config.TESSERACT_PATH:
+    pytesseract.pytesseract.tesseract_cmd = Config.TESSERACT_PATH
 
-def main():
-    """הפעלת הבוט במצב production"""
-    logger.info("🚀 Starting bot deployment...")
-    
+# --- אתחול אפליקציית Flask ---
+app = Flask(__name__)
+
+# --- לוגיקת הבוט ---
+async def start(update: Update, context):
+    await update.message.reply_text(Config.WELCOME_MESSAGE)
+
+async def help_command(update: Update, context):
+    await update.message.reply_text(Config.HELP_MESSAGE)
+
+async def handle_photo(update: Update, context):
     try:
-        # בדיקת הגדרות
-        Config.validate()
+        loading_msg = await update.message.reply_text("🔄 מעבד את התמונה...")
+        photo = update.message.photo[-1]
+        file = await context.bot.get_file(photo.file_id)
         
-        # הדפסת מידע על הפעלה
-        port = Config.PORT
-        # Determine webhook URL (explicit or derived)
-        webhook_url = Config.WEBHOOK_URL or (
-            f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}" if os.getenv('RENDER_EXTERNAL_HOSTNAME') else None
-        )
-
-        logger.info(f"📡 Starting webhook bot on port {port}")
-        if webhook_url:
-            logger.info(f"🔗 Webhook URL: {webhook_url}")
+        # הורדה וחילוץ טקסט
+        url = f"https://api.telegram.org/file/bot{Config.BOT_TOKEN}/{file.file_path}"
+        response = requests.get(url)
+        response.raise_for_status()
+        image = Image.open(io.BytesIO(response.content)).convert('RGB')
+        text = pytesseract.image_to_string(image, lang='heb+eng')
+        
+        await loading_msg.delete()
+        if text.strip():
+            response_text = f"📝 **הטקסט שנמצא בתמונה:**\n\n{text.strip()}"
+            await update.message.reply_text(response_text, parse_mode='Markdown')
         else:
-            logger.warning("⚠️  No webhook URL configured - bot will run in development mode")
-        
-        # הפעלת הבוט
-        webhook_main()
-        
+            await update.message.reply_text("❌ לא נמצא טקסט בתמונה.")
     except Exception as e:
-        logger.error(f"❌ Failed to start bot: {e}")
-        sys.exit(1)
+        logger.error(f"שגיאה בעיבוד תמונה: {e}")
+        await update.message.reply_text("❌ אירעה שגיאה בעיבוד התמונה.")
+
+async def handle_text(update: Update, context):
+    await update.message.reply_text("📸 אנא שלחו תמונה כדי לחלץ ממנה טקסט.")
+
+# --- הגדרת הבוט ואתחול ---
+application = Application.builder().token(Config.BOT_TOKEN).build()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("help", help_command))
+application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+# --- נתיבי שרת ה-Flask ---
+@app.route('/webhook', methods=['POST'])
+async def webhook():
+    update_data = request.get_json()
+    await application.update_queue.put(Update.de_json(update_data, application.bot))
+    return jsonify({"status": "OK"}), 200
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "OK"}), 200
+
+@app.route('/', methods=['GET'])
+def index():
+    return jsonify({"message": "Bot is running"}), 200
+
+# --- פונקציית הרצה ראשית ---
+def main():
+    port = int(os.getenv('PORT', 8080))
+    webhook_url = os.getenv('WEBHOOK_URL')
+    
+    if not webhook_url:
+        logger.error("WEBHOOK_URL is not set!")
+        return
+
+    async def setup():
+        await application.initialize()
+        await application.bot.set_webhook(
+            url=f"{webhook_url}/webhook",
+            allowed_updates=Update.ALL_TYPES
+        )
+        logger.info(f"Webhook has been set to {webhook_url}/webhook")
+        
+    # הרצת ה-setup
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        loop.create_task(setup())
+    else:
+        loop.run_until_complete(setup())
+        
+    # הרצת שרת ה-Flask
+    app.run(host='0.0.0.0', port=port)
 
 if __name__ == "__main__":
     main()
