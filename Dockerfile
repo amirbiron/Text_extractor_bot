@@ -7,18 +7,21 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies in a single layer
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    # Tools needed to build Python packages like Pillow
+    # Python and build tools
     build-essential \
     python3-dev \
-    # The actual applications we need
     python3 \
     python3-pip \
+    # Tesseract and language packs
     tesseract-ocr \
     tesseract-ocr-eng \
     tesseract-ocr-heb \
+    # **NEW**: Libraries needed to build Pillow from source
+    libjpeg-dev \
+    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies
