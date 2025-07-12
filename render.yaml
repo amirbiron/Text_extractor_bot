@@ -6,3 +6,5 @@ services:
     envVars:
       - key: BOT_TOKEN
         sync: false
+      - key: TESSERACT_CMD # This is the new variable
+        value: /usr/bin/tesseract
