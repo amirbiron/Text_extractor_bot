@@ -22,7 +22,8 @@ tesseract_cmd = os.environ.get('TESSERACT_CMD')
 if tesseract_cmd:
     pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 else:
-    logger.warning("TESSERACT_CMD environment variable not set. Assuming Tesseract is in PATH.")
+    logger.error("FATAL: TESSERACT_CMD environment variable not set!")
+    exit() # Exit if tesseract path is not configured
 
 # --- Keep-Alive Web Server ---
 def run_keep_alive_server():
@@ -53,8 +54,8 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         else:
             await update.message.reply_text("לא הצלחתי למצוא טקסט בתמונה.", quote=True)
             
-    except Exception as e:
-        logger.error(f"Error handling image: {e}")
+    except Exception:
+        logger.error("Exception while handling image:", exc_info=True)
         await update.message.reply_text("אירעה שגיאה בעיבוד התמונה.")
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -73,9 +74,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         else:
             await update.message.reply_text("לא הצלחתי למצוא טקסט בקובץ.", quote=True)
 
-    except Exception as e:
-        logger.error(f"Error handling document: {e}")
+    except Exception:
+        logger.error("Exception while handling document:", exc_info=True)
         await update.message.reply_text("אירעה שגיאה בעיבוד הקובץ. ודא שזהו קובץ תמונה.")
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error("Exception while handling an update:", exc_info=context.error)
 
 # --- Main Application Runner ---
 def main() -> None:
@@ -89,12 +93,14 @@ def main() -> None:
 
     application = Application.builder().token(TOKEN).build()
     
+    # Add all handlers
+    application.add_error_handler(error_handler)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO, handle_image))
     application.add_handler(MessageHandler(filters.Document.IMAGE, handle_document))
     
     logger.info("Bot starting with Polling...")
-    application.run_polling()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
