@@ -17,10 +17,15 @@ logger = logging.getLogger(__name__)
 TOKEN = os.environ.get("BOT_TOKEN")
 PORT = 8080 # Port for the keep-alive server
 
-# Set the Tesseract path if specified in environment (for Docker)
+# --- NEW: Explicitly set the Tesseract command path ---
+# This line reads the path from an environment variable we will set in Render.
+# This is the fix for the "tesseract is not installed" error.
 tesseract_cmd = os.environ.get('TESSERACT_CMD')
 if tesseract_cmd:
     pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+else:
+    logger.warning("TESSERACT_CMD environment variable not set. Assuming Tesseract is in PATH.")
+
 
 # --- Keep-Alive Web Server ---
 def run_keep_alive_server():
@@ -39,17 +44,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles photo messages and extracts text from them."""
     try:
-        # Get the photo file
+        await update.message.reply_text("מעבד את התמונה...", quote=True)
         photo_file = await update.message.photo[-1].get_file()
         file_path = f"{photo_file.file_id}.jpg"
         await photo_file.download_to_drive(file_path)
         
-        await update.message.reply_text("מעבד את התמונה...", quote=True)
-
-        # Extract text using Tesseract
         extracted_text = pytesseract.image_to_string(Image.open(file_path), lang='heb+eng')
         
-        # Clean up the downloaded file
         os.remove(file_path)
         
         if extracted_text.strip():
@@ -64,11 +65,10 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles image files sent as documents."""
     try:
-        doc_file = await update.message.document.get_file()
-        file_path = f"{doc_file.file_id}.png" # Assume common image format
-        await doc_file.download_to_drive(file_path)
-
         await update.message.reply_text("מעבד את הקובץ...", quote=True)
+        doc_file = await update.message.document.get_file()
+        file_path = f"{doc_file.file_id}.png"
+        await doc_file.download_to_drive(file_path)
 
         extracted_text = pytesseract.image_to_string(Image.open(file_path), lang='heb+eng')
         
@@ -90,12 +90,10 @@ def main() -> None:
         logger.fatal("FATAL: BOT_TOKEN environment variable not found!")
         return
 
-    # Start the keep-alive server in a separate thread
     keep_alive_thread = threading.Thread(target=run_keep_alive_server)
     keep_alive_thread.daemon = True
     keep_alive_thread.start()
 
-    # Create and configure the Telegram bot application
     application = Application.builder().token(TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
