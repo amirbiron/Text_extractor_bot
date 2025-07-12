@@ -1,19 +1,25 @@
-# Start from a clean Debian image, which gives us more control
+# Start from a clean Debian image
 FROM debian:bookworm-slim
 
-# Set environment variables to ensure non-interactive installation
+# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Python, pip, and then Tesseract and its language packs
-RUN apt-get update && \
-    apt-get install -y python3 python3-pip && \
-    apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng tesseract-ocr-heb && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set the working directory
 WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    # Tools needed to build Python packages like Pillow
+    build-essential \
+    python3-dev \
+    # The actual applications we need
+    python3 \
+    python3-pip \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-heb \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies
 COPY requirements.txt .
