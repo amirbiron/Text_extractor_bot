@@ -1,18 +1,8 @@
 services:
   - type: web
-    name: telegram-ocr-bot
-    env: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python deploy.py # ודא שהשם תואם לשם הקובץ שלך
-    autoDeploy: true
+    name: text-extractor-bot-free
+    env: docker
+    healthCheckPath: /
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: WEBHOOK_URL
-        fromService:
-          type: web
-          name: telegram-ocr-bot
-          property: url
-      - key: PORT
-        value: "8080"
