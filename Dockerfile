@@ -1,11 +1,13 @@
-# Start from a Python 3.11 base image
+# Start from a stable Python base image
 FROM python:3.11-slim
 
-# Set the working directory in the container
+# Set the working directory
 WORKDIR /app
 
-# Install system dependencies, including Tesseract for Hebrew and English
-RUN apt-get update && apt-get install -y \
+# Update package lists and install dependencies in a single, clean step
+# --no-install-recommends reduces image size
+# The final command cleans up apt cache to keep the image small
+RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-heb \
     tesseract-ocr-eng \
