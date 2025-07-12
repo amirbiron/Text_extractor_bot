@@ -1,107 +1,38 @@
+import subprocess
+import time
 import logging
-import os
-import pytesseract
-from PIL import Image
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import http.server
-import socketserver
-import threading
 
-# --- Basic Setup ---
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+# Basic logging to see output clearly in Render's logs
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-TOKEN = os.environ.get("BOT_TOKEN")
-PORT = 8080 # Port for the keep-alive server
+logger.info("--- Starting Diagnostic Script ---")
 
-# --- NEW: Explicitly set the Tesseract command path ---
-# This line reads the path from an environment variable we will set in Render.
-# This is the fix for the "tesseract is not installed" error.
-tesseract_cmd = os.environ.get('TESSERACT_CMD')
-if tesseract_cmd:
-    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-else:
-    logger.warning("TESSERACT_CMD environment variable not set. Assuming Tesseract is in PATH.")
+# Test 1: Try to find where tesseract is using 'whereis'
+logger.info("--- Running 'whereis tesseract' ---")
+try:
+    result = subprocess.run(['whereis', 'tesseract'], capture_output=True, text=True, check=False)
+    logger.info(f"Stdout: {result.stdout.strip()}")
+    logger.info(f"Stderr: {result.stderr.strip()}")
+except FileNotFoundError:
+    logger.error("'whereis' command not found. This is unusual for the base image.")
+except Exception as e:
+    logger.error(f"Failed to run 'whereis': {e}")
 
+# Test 2: Check if the file exists at the expected path using 'ls'
+logger.info("\n--- Running 'ls -l /usr/bin/tesseract' ---")
+try:
+    result = subprocess.run(['ls', '-l', '/usr/bin/tesseract'], capture_output=True, text=True, check=False)
+    if result.returncode == 0:
+        logger.info(f"File found! Details: {result.stdout.strip()}")
+    else:
+        logger.error(f"File not found at /usr/bin/tesseract. Stderr: {result.stderr.strip()}")
+except FileNotFoundError:
+    logger.error("'ls' command not found. This is highly unusual.")
+except Exception as e:
+    logger.error(f"Failed to run 'ls': {e}")
 
-# --- Keep-Alive Web Server ---
-def run_keep_alive_server():
-    """Runs a simple HTTP server in a background thread to keep the service alive."""
-    handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(("", PORT), handler) as httpd:
-        logger.info(f"Keep-alive server started on port {PORT}")
-        httpd.serve_forever()
+logger.info("\n--- Diagnostic Script Finished. Idling to allow log inspection. ---")
 
-# --- Bot Handlers ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "שלום! שלח לי תמונה (או קובץ תמונה) ואפיק ממנה את הטקסט בעברית או באנגלית."
-    )
-
-async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles photo messages and extracts text from them."""
-    try:
-        await update.message.reply_text("מעבד את התמונה...", quote=True)
-        photo_file = await update.message.photo[-1].get_file()
-        file_path = f"{photo_file.file_id}.jpg"
-        await photo_file.download_to_drive(file_path)
-        
-        extracted_text = pytesseract.image_to_string(Image.open(file_path), lang='heb+eng')
-        
-        os.remove(file_path)
-        
-        if extracted_text.strip():
-            await update.message.reply_text(extracted_text, quote=True)
-        else:
-            await update.message.reply_text("לא הצלחתי למצוא טקסט בתמונה.", quote=True)
-            
-    except Exception as e:
-        logger.error(f"Error handling image: {e}")
-        await update.message.reply_text("אירעה שגיאה בעיבוד התמונה.")
-
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles image files sent as documents."""
-    try:
-        await update.message.reply_text("מעבד את הקובץ...", quote=True)
-        doc_file = await update.message.document.get_file()
-        file_path = f"{doc_file.file_id}.png"
-        await doc_file.download_to_drive(file_path)
-
-        extracted_text = pytesseract.image_to_string(Image.open(file_path), lang='heb+eng')
-        
-        os.remove(file_path)
-        
-        if extracted_text.strip():
-            await update.message.reply_text(extracted_text, quote=True)
-        else:
-            await update.message.reply_text("לא הצלחתי למצוא טקסט בקובץ.", quote=True)
-
-    except Exception as e:
-        logger.error(f"Error handling document: {e}")
-        await update.message.reply_text("אירעה שגיאה בעיבוד הקובץ. ודא שזהו קובץ תמונה.")
-
-# --- Main Application Runner ---
-def main() -> None:
-    """Start the bot and the keep-alive server."""
-    if not TOKEN:
-        logger.fatal("FATAL: BOT_TOKEN environment variable not found!")
-        return
-
-    keep_alive_thread = threading.Thread(target=run_keep_alive_server)
-    keep_alive_thread.daemon = True
-    keep_alive_thread.start()
-
-    application = Application.builder().token(TOKEN).build()
-    
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_image))
-    application.add_handler(MessageHandler(filters.Document.IMAGE, handle_document))
-    
-    logger.info("Bot starting with Polling...")
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+# Keep the script running for a few minutes so we can read the logs
+time.sleep(300)
