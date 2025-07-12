@@ -1,32 +1,26 @@
-# Start from a clean Debian image
-FROM debian:bookworm-slim
+# Use the official Python image. This is more reliable for building packages.
+FROM python:3.11-bullseye
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Set the working directory
 WORKDIR /app
 
-# Install system dependencies in a single layer
+# Update package lists and install Tesseract and its language packs
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    # Python and build tools
-    build-essential \
-    python3-dev \
-    python3 \
-    python3-pip \
-    # Tesseract and language packs
     tesseract-ocr \
     tesseract-ocr-eng \
     tesseract-ocr-heb \
-    # **NEW**: Libraries needed to build Pillow from source
-    libjpeg-dev \
-    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install Python dependencies
+# Copy the requirements file first to leverage Docker cache
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application's code
 COPY . .
