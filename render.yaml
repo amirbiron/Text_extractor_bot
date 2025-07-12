@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: text-extractor-bot-free
+    name: text-extractor-bot-final
     env: docker
     healthCheckPath: /
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: TESSERACT_CMD # This is the new variable
+      - key: TESSERACT_CMD
         value: /usr/bin/tesseract
