@@ -1,90 +1,109 @@
 import logging
 import os
-import io
-import asyncio
-from flask import Flask, request, jsonify
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from PIL import Image
 import pytesseract
-import requests
-from config import Config
+from PIL import Image
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import http.server
+import socketserver
+import threading
 
-# --- הגדרות בסיס ---
+# --- Basic Setup ---
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO').upper())
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-if os.getenv('TESSERACT_PATH'):
-    pytesseract.pytesseract.tesseract_cmd = os.getenv('TESSERACT_PATH')
+TOKEN = os.environ.get("BOT_TOKEN")
+PORT = 8080 # Port for the keep-alive server
 
-# --- אתחול Flask ---
-app = Flask(__name__)
+# Set the Tesseract path if specified in environment (for Docker)
+tesseract_cmd = os.environ.get('TESSERACT_CMD')
+if tesseract_cmd:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
-# --- אתחול הבוט ---
-application = Application.builder().token(Config.BOT_TOKEN).build()
+# --- Keep-Alive Web Server ---
+def run_keep_alive_server():
+    """Runs a simple HTTP server in a background thread to keep the service alive."""
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", PORT), handler) as httpd:
+        logger.info(f"Keep-alive server started on port {PORT}")
+        httpd.serve_forever()
 
-# --- פקודות הבוט ---
-async def start(update: Update, context):
-    await update.message.reply_text(os.getenv('WELCOME_MESSAGE', '👋 ברוכים הבאים! שלחו לי תמונה ואזהה את הטקסט שבה.'))
-
-async def help_command(update: Update, context):
-    await update.message.reply_text(os.getenv('HELP_MESSAGE', '📸 שלחו תמונה עם טקסט ואחזיר לכם את מה שמופיע בה.'))
-
-async def handle_photo(update: Update, context):
-    try:
-        loading_msg = await update.message.reply_text("🔄 מעבד את התמונה...")
-        photo = update.message.photo[-1]
-        file = await context.bot.get_file(photo.file_id)
-        url = f"https://api.telegram.org/file/bot{Config.BOT_TOKEN}/{file.file_path}"
-        response = requests.get(url)
-        response.raise_for_status()
-        image = Image.open(io.BytesIO(response.content)).convert('RGB')
-        text = pytesseract.image_to_string(image, lang='heb+eng')
-
-        await loading_msg.delete()
-        if text.strip():
-            await update.message.reply_text(f"📝 **הטקסט שנמצא בתמונה:**\n\n{text.strip()}", parse_mode='Markdown')
-        else:
-            await update.message.reply_text("❌ לא נמצא טקסט בתמונה.")
-    except Exception as e:
-        logger.error(f"שגיאה בעיבוד תמונה: {e}")
-        await update.message.reply_text("❌ אירעה שגיאה בעיבוד התמונה.")
-
-async def handle_text(update: Update, context):
-    await update.message.reply_text("📸 שלחו תמונה כדי שאזהה את הטקסט שבה.")
-
-# --- רישום handlers ---
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("help", help_command))
-application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-# --- מסלולים של Flask ---
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    update_data = request.get_json()
-    asyncio.create_task(
-        application.update_queue.put(Update.de_json(update_data, application.bot))
+# --- Bot Handlers ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "שלום! שלח לי תמונה (או קובץ תמונה) ואפיק ממנה את הטקסט בעברית או באנגלית."
     )
-    return jsonify({"status": "OK"}), 200
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "OK"}), 200
+async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles photo messages and extracts text from them."""
+    try:
+        # Get the photo file
+        photo_file = await update.message.photo[-1].get_file()
+        file_path = f"{photo_file.file_id}.jpg"
+        await photo_file.download_to_drive(file_path)
+        
+        await update.message.reply_text("מעבד את התמונה...", quote=True)
 
-@app.route('/', methods=['GET'])
-def index():
-    return jsonify({"message": "Bot is running and listening for webhooks"}), 200
+        # Extract text using Tesseract
+        extracted_text = pytesseract.image_to_string(Image.open(file_path), lang='heb+eng')
+        
+        # Clean up the downloaded file
+        os.remove(file_path)
+        
+        if extracted_text.strip():
+            await update.message.reply_text(extracted_text, quote=True)
+        else:
+            await update.message.reply_text("לא הצלחתי למצוא טקסט בתמונה.", quote=True)
+            
+    except Exception as e:
+        logger.error(f"Error handling image: {e}")
+        await update.message.reply_text("אירעה שגיאה בעיבוד התמונה.")
 
-# --- רישום ה־Webhook כששרת עולה ---
-webhook_url = os.getenv('WEBHOOK_URL')
-if webhook_url:
-    asyncio.get_event_loop().create_task(application.initialize())
-    asyncio.get_event_loop().create_task(application.bot.set_webhook(
-        url=f"{webhook_url}/webhook",
-        allowed_updates=Update.ALL_TYPES
-    ))
-    logger.info(f"✅ Webhook set to: {webhook_url}/webhook")
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles image files sent as documents."""
+    try:
+        doc_file = await update.message.document.get_file()
+        file_path = f"{doc_file.file_id}.png" # Assume common image format
+        await doc_file.download_to_drive(file_path)
+
+        await update.message.reply_text("מעבד את הקובץ...", quote=True)
+
+        extracted_text = pytesseract.image_to_string(Image.open(file_path), lang='heb+eng')
+        
+        os.remove(file_path)
+        
+        if extracted_text.strip():
+            await update.message.reply_text(extracted_text, quote=True)
+        else:
+            await update.message.reply_text("לא הצלחתי למצוא טקסט בקובץ.", quote=True)
+
+    except Exception as e:
+        logger.error(f"Error handling document: {e}")
+        await update.message.reply_text("אירעה שגיאה בעיבוד הקובץ. ודא שזהו קובץ תמונה.")
+
+# --- Main Application Runner ---
+def main() -> None:
+    """Start the bot and the keep-alive server."""
+    if not TOKEN:
+        logger.fatal("FATAL: BOT_TOKEN environment variable not found!")
+        return
+
+    # Start the keep-alive server in a separate thread
+    keep_alive_thread = threading.Thread(target=run_keep_alive_server)
+    keep_alive_thread.daemon = True
+    keep_alive_thread.start()
+
+    # Create and configure the Telegram bot application
+    application = Application.builder().token(TOKEN).build()
+    
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_image))
+    application.add_handler(MessageHandler(filters.Document.IMAGE, handle_document))
+    
+    logger.info("Bot starting with Polling...")
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
