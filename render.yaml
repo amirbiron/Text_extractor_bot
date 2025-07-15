@@ -2,7 +2,11 @@ services:
   - type: web
     name: text-extractor-final
     env: docker
+    # הנתיב לבדיקת "בריאות" השרת. חיוני כדי להשאיר את השירות ער.
     healthCheckPath: /
+    # משתני סביבה. ודא שהוספת אותם גם בממשק של Render.
     envVars:
       - key: BOT_TOKEN
-        sync: false
+        generateValue: true # Render יצור עבורך שדה ריק למלא
+      - key: TESSERACT_CMD
+        value: /usr/bin/tesseract
