@@ -3,30 +3,38 @@ import os
 import pytesseract
 from PIL import Image
 from telegram import Update
-from telegram.ext import Application, ContextTypes, CommandHandler, MessageHandler, filters
-from flask import Flask, request
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import http.server
+import socketserver
+import threading
 import asyncio
 
 # --- Basic Setup ---
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-# --- Configuration ---
 TOKEN = os.environ.get("BOT_TOKEN")
-APP_URL = os.environ.get("RENDER_APP_URL")
+PORT = 8080
 
-# --- Tesseract Path Setup ---
+# Explicitly set the Tesseract command path
 tesseract_cmd = os.environ.get('TESSERACT_CMD')
 if tesseract_cmd:
     pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
-# --- PTB and Flask App Initialization ---
-ptb_app = Application.builder().token(TOKEN).build()
-flask_app = Flask(__name__)
+# --- Keep-Alive Web Server ---
+def run_keep_alive_server():
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", PORT), handler) as httpd:
+        logger.info(f"Keep-alive server started on port {PORT}")
+        httpd.serve_forever()
 
 # --- Bot Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("שלום! שלח לי תמונה (או קובץ תמונה) ואפיק ממנה את הטקסט.")
+    await update.message.reply_text(
+        "שלום! שלח לי תמונה (או קובץ תמונה) ואפיק ממנה את הטקסט בעברית או באנגלית."
+    )
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
@@ -34,34 +42,52 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         photo_file = await update.message.photo[-1].get_file()
         file_path = f"{photo_file.file_id}.jpg"
         await photo_file.download_to_drive(file_path)
+        
         extracted_text = pytesseract.image_to_string(Image.open(file_path), lang='heb+eng')
+        
         os.remove(file_path)
-        await update.message.reply_text(extracted_text or "לא נמצא טקסט.", quote=True)
-    except Exception as e:
-        logger.error(f"Error handling image: {e}")
+        
+        if extracted_text.strip():
+            await update.message.reply_text(extracted_text, quote=True)
+        else:
+            await update.message.reply_text("לא הצלחתי למצוא טקסט בתמונה.", quote=True)
+            
+    except Exception:
+        logger.error("Exception while handling image:", exc_info=True)
         await update.message.reply_text("אירעה שגיאה בעיבוד התמונה.")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Exception while handling an update:", exc_info=context.error)
 
-# --- Flask Webhook Endpoint ---
-@flask_app.route(f"/{TOKEN}", methods=["POST"])
-def respond():
-    update = Update.de_json(request.get_json(force=True), ptb_app.bot)
-    asyncio.run(ptb_app.process_update(update))
-    return "ok"
+# --- Main Application Runner ---
+async def main() -> None:
+    """Start the bot using the async-native approach."""
+    if not TOKEN:
+        logger.fatal("FATAL: BOT_TOKEN environment variable not found!")
+        return
 
-# --- Main Setup Coroutine ---
-async def main():
-    ptb_app.add_error_handler(error_handler)
-    ptb_app.add_handler(CommandHandler("start", start))
-    ptb_app.add_handler(MessageHandler(filters.PHOTO, handle_image))
-    ptb_app.add_handler(MessageHandler(filters.Document.IMAGE, handle_image))
+    # Start the keep-alive server in a separate thread. It's not async.
+    keep_alive_thread = threading.Thread(target=run_keep_alive_server)
+    keep_alive_thread.daemon = True
+    keep_alive_thread.start()
+
+    # Create and configure the Telegram bot application
+    application = Application.builder().token(TOKEN).build()
     
-    await ptb_app.initialize()
-    webhook_url = f"{APP_URL}/{TOKEN}"
-    await ptb_app.bot.set_webhook(url=webhook_url, allowed_updates=Update.ALL_TYPES)
-    logger.info(f"Webhook set to {webhook_url}")
+    application.add_error_handler(error_handler)
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_image))
+    application.add_handler(MessageHandler(filters.Document.IMAGE, handle_image))
+    
+    logger.info("Bot starting...")
 
-# Run the setup once when the app starts
-asyncio.run(main())
+    # Run the bot and its dispatcher concurrently
+    async with application:
+        await application.start()
+        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        
+        # Keep the main coroutine alive forever
+        await asyncio.Event().wait()
+
+if __name__ == "__main__":
+    asyncio.run(main())
