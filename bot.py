@@ -7,21 +7,31 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import http.server
 import socketserver
 import threading
-import asyncio
 
-# --- Basic Setup ---
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+# --- Diagnostic Block at the very top ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-TOKEN = os.environ.get("BOT_TOKEN")
-PORT = 8080
+logger.info("--- Starting Diagnostic Check ---")
+bot_token_found = os.environ.get("BOT_TOKEN")
+tesseract_cmd_found = os.environ.get("TESSERACT_CMD")
 
-# Explicitly set the Tesseract command path
-tesseract_cmd = os.environ.get('TESSERACT_CMD')
-if tesseract_cmd:
-    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+logger.info(f"Found BOT_TOKEN: {'Yes, value is present.' if bot_token_found else 'No, value is missing!'}")
+logger.info(f"Found TESSERACT_CMD: {'Yes, value is present.' if tesseract_cmd_found else 'No, value is missing!'}")
+logger.info(f"Value for TESSERACT_CMD from environment: {tesseract_cmd_found}")
+
+if not bot_token_found or not tesseract_cmd_found:
+    logger.error("FATAL: A required environment variable is missing. The application will now exit.")
+    exit()
+else:
+    logger.info("--- Diagnostic Check Passed. Starting bot... ---")
+# --- End of Diagnostic block ---
+
+# --- Configuration ---
+TOKEN = bot_token_found
+PORT = 8080
+pytesseract.pytesseract.tesseract_cmd = tesseract_cmd_found
+
 
 # --- Keep-Alive Web Server ---
 def run_keep_alive_server():
@@ -60,18 +70,11 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error("Exception while handling an update:", exc_info=context.error)
 
 # --- Main Application Runner ---
-async def main() -> None:
-    """Start the bot using the async-native approach."""
-    if not TOKEN:
-        logger.fatal("FATAL: BOT_TOKEN environment variable not found!")
-        return
-
-    # Start the keep-alive server in a separate thread. It's not async.
+def main() -> None:
     keep_alive_thread = threading.Thread(target=run_keep_alive_server)
     keep_alive_thread.daemon = True
     keep_alive_thread.start()
 
-    # Create and configure the Telegram bot application
     application = Application.builder().token(TOKEN).build()
     
     application.add_error_handler(error_handler)
@@ -79,15 +82,8 @@ async def main() -> None:
     application.add_handler(MessageHandler(filters.PHOTO, handle_image))
     application.add_handler(MessageHandler(filters.Document.IMAGE, handle_image))
     
-    logger.info("Bot starting...")
-
-    # Run the bot and its dispatcher concurrently
-    async with application:
-        await application.start()
-        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        
-        # Keep the main coroutine alive forever
-        await asyncio.Event().wait()
+    logger.info("Bot starting with Polling...")
+    application.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
