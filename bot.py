@@ -16,8 +16,11 @@ logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 TOKEN = os.environ.get("BOT_TOKEN")
-TESSERACT_CMD_PATH = os.environ.get('TESSERACT_CMD')
-PORT = 8080
+# **THE FIX**: Use the port Render provides, or default to 8080
+PORT = int(os.environ.get("PORT", 8080))
+TESSERACT_CMD_PATH = "/usr/bin/tesseract" # Hard-coded path is stable in our Docker env
+pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD_PATH
+
 
 # --- Keep-Alive Web Server ---
 def run_keep_alive_server():
@@ -50,23 +53,16 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             
     except Exception as e:
         logger.error(f"Exception while handling image: {e}", exc_info=True)
-        await update.message.reply_text("אירעה שגיאה בעיבוד התמונה. ייתכן שתוכנת זיהוי הטקסט לא הותקנה כראוי על השרת.")
+        await update.message.reply_text("אירעה שגיאה בעיבוד התמונה.")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Exception while handling an update:", exc_info=context.error)
 
 # --- Main Application Runner ---
 def main() -> None:
-    # Validate environment variables before starting
     if not TOKEN:
         logger.fatal("FATAL: BOT_TOKEN environment variable is missing! Application will exit.")
         exit(1)
-    if not TESSERACT_CMD_PATH:
-        logger.fatal("FATAL: TESSERACT_CMD environment variable is missing! Application will exit.")
-        exit(1)
-    
-    # Set Tesseract path for the pytesseract library
-    pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD_PATH
     
     # Start the keep-alive server in a separate thread
     keep_alive_thread = threading.Thread(target=run_keep_alive_server)
