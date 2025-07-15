@@ -1,12 +1,10 @@
 services:
   - type: web
-    name: text-extractor-webhook
+    name: text-extractor-final
     env: docker
+    healthCheckPath: /
     envVars:
       - key: BOT_TOKEN
         sync: false
       - key: TESSERACT_CMD
         value: /usr/bin/tesseract
-      - key: RENDER_APP_URL
-        sync: false
-    startCommand: "gunicorn bot:flask_app --bind 0.0.0.0:$PORT"
