@@ -1,83 +1,41 @@
-import logging
 import os
-import pytesseract
-from PIL import Image
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import http.server
-import socketserver
-import threading
+import logging
+import time
 
-# --- Basic Setup ---
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+# --- Verbose Diagnostic Block at the very top ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- Configuration ---
-TOKEN = os.environ.get("BOT_TOKEN")
-PORT = 8080
+logger.info("--- Starting Final Diagnostic Check ---")
 
-# **THE FIX**: Hard-code the Tesseract path. This removes the need for the TESSERACT_CMD env var.
-TESSERACT_PATH = "/usr/bin/tesseract"
-pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
+# Print all available environment variables to find any typos or issues
+logger.info("--- All available environment variables: ---")
+all_vars = os.environ.items()
+if not all_vars:
+    logger.info("No environment variables found.")
+else:
+    for key, value in all_vars:
+        # Mask sensitive values for security in logs
+        if "TOKEN" in key.upper() or "KEY" in key.upper() or "URI" in key.upper():
+            value = f"***...{value[-4:]}" if len(value) > 8 else "***"
+        logger.info(f"'{key}': '{value}'")
+logger.info("-----------------------------------------")
 
 
-# --- Keep-Alive Web Server ---
-def run_keep_alive_server():
-    handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(("", PORT), handler) as httpd:
-        logger.info(f"Keep-alive server started on port {PORT}")
-        httpd.serve_forever()
+# Check for the specific variables we need
+bot_token = os.environ.get("BOT_TOKEN")
+tesseract_cmd = os.environ.get("TESSERACT_CMD")
 
-# --- Bot Handlers ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "שלום! שלח לי תמונה (או קובץ תמונה) ואפיק ממנה את הטקסט בעברית או באנגלית."
-    )
+logger.info(f"Attempting to read BOT_TOKEN. Found: {'Yes' if bot_token else 'No'}")
+logger.info(f"Attempting to read TESSERACT_CMD. Found: {'Yes' if tesseract_cmd else 'No'}")
 
-async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        await update.message.reply_text("מעבד את התמונה...", quote=True)
-        photo_file = await update.message.photo[-1].get_file()
-        file_path = f"{photo_file.file_id}.jpg"
-        await photo_file.download_to_drive(file_path)
-        
-        extracted_text = pytesseract.image_to_string(Image.open(file_path), lang='heb+eng')
-        
-        os.remove(file_path)
-        
-        if extracted_text.strip():
-            await update.message.reply_text(extracted_text, quote=True)
-        else:
-            await update.message.reply_text("לא הצלחתי למצוא טקסט בתמונה.", quote=True)
-            
-    except Exception:
-        logger.error("Exception while handling image:", exc_info=True)
-        await update.message.reply_text("אירעה שגיאה בעיבוד התמונה.")
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.error("Exception while handling an update:", exc_info=context.error)
-
-# --- Main Application Runner ---
-def main() -> None:
-    if not TOKEN:
-        logger.fatal("FATAL: BOT_TOKEN environment variable not found! Application will exit.")
-        exit() # Exit cleanly if token is missing
-
-    keep_alive_thread = threading.Thread(target=run_keep_alive_server)
-    keep_alive_thread.daemon = True
-    keep_alive_thread.start()
-
-    application = Application.builder().token(TOKEN).build()
-    
-    application.add_error_handler(error_handler)
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_image))
-    application.add_handler(MessageHandler(filters.Document.IMAGE, handle_image))
-    
-    logger.info("Bot starting with Polling...")
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+if not bot_token:
+    logger.error("FATAL: BOT_TOKEN is missing or empty. Bot cannot start.")
+    logger.info("Container will idle for 5 minutes for inspection before exiting.")
+    time.sleep(300)
+    exit(1)
+else:
+    logger.info("SUCCESS: BOT_TOKEN was found. The bot should be able to start.")
+    logger.info("Container will now exit as this was a diagnostic run.")
+    time.sleep(5)
