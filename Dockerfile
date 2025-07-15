@@ -1,29 +1,21 @@
-# Use the official Python image. This is more reliable for building packages.
+# Use the official Python image
 FROM python:3.11-bullseye
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Set the working directory
 WORKDIR /app
 
-# Update package lists and install Tesseract and its language packs
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    tesseract-ocr \
-    tesseract-ocr-eng \
-    tesseract-ocr-heb \
+    tesseract-ocr tesseract-ocr-eng tesseract-ocr-heb \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file first to leverage Docker cache
+# Copy and install Python dependencies
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application's code
 COPY . .
 
-# Specify the command to run on container start
-CMD ["python3", "bot.py"]
+# The CMD will be handled by render.yaml's startCommand
