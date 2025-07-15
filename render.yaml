@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: text-extractor-final
+    env: docker
+    healthCheckPath: /
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: TESSERACT_CMD
+        value: /usr/bin/tesseract
