@@ -8,30 +8,22 @@ import http.server
 import socketserver
 import threading
 
-# --- Diagnostic Block at the very top ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+# --- Basic Setup ---
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-logger.info("--- Starting Diagnostic Check ---")
-bot_token_found = os.environ.get("BOT_TOKEN")
-tesseract_cmd_found = os.environ.get("TESSERACT_CMD")
-
-logger.info(f"Found BOT_TOKEN: {'Yes, value is present.' if bot_token_found else 'No, value is missing!'}")
-logger.info(f"Found TESSERACT_CMD: {'Yes, value is present.' if tesseract_cmd_found else 'No, value is missing!'}")
-logger.info(f"Value for TESSERACT_CMD from environment: {tesseract_cmd_found}")
-
-if not bot_token_found or not tesseract_cmd_found:
-    logger.error("FATAL: A required environment variable is missing. The application will now exit.")
-    exit()
-else:
-    logger.info("--- Diagnostic Check Passed. Starting bot... ---")
-# --- End of Diagnostic block ---
-
-# --- Configuration ---
-TOKEN = bot_token_found
+TOKEN = os.environ.get("BOT_TOKEN")
 PORT = 8080
-pytesseract.pytesseract.tesseract_cmd = tesseract_cmd_found
 
+# Explicitly set the Tesseract command path from environment variable
+tesseract_cmd = os.environ.get('TESSERACT_CMD')
+if tesseract_cmd:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+else:
+    logger.error("FATAL: TESSERACT_CMD environment variable not set!")
+    exit()
 
 # --- Keep-Alive Web Server ---
 def run_keep_alive_server():
@@ -71,6 +63,10 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 # --- Main Application Runner ---
 def main() -> None:
+    if not TOKEN:
+        logger.fatal("FATAL: BOT_TOKEN environment variable not found!")
+        return
+
     keep_alive_thread = threading.Thread(target=run_keep_alive_server)
     keep_alive_thread.daemon = True
     keep_alive_thread.start()
