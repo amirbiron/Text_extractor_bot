@@ -6,5 +6,3 @@ services:
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: TESSERACT_CMD
-        value: /usr/bin/tesseract
