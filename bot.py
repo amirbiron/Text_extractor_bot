@@ -3,40 +3,30 @@ import os
 import pytesseract
 from PIL import Image
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import http.server
-import socketserver
-import threading
+from telegram.ext import Application, ContextTypes, CommandHandler, MessageHandler, filters
+from flask import Flask, request
+import asyncio
 
 # --- Basic Setup ---
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- Configuration ---
 TOKEN = os.environ.get("BOT_TOKEN")
-PORT = 8080
+APP_URL = os.environ.get("RENDER_APP_URL")
 
-# Explicitly set the Tesseract command path from environment variable
+# --- Tesseract Path Setup ---
 tesseract_cmd = os.environ.get('TESSERACT_CMD')
 if tesseract_cmd:
     pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-else:
-    logger.error("FATAL: TESSERACT_CMD environment variable not set!")
-    exit() # Exit if tesseract path is not configured
 
-# --- Keep-Alive Web Server ---
-def run_keep_alive_server():
-    handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(("", PORT), handler) as httpd:
-        logger.info(f"Keep-alive server started on port {PORT}")
-        httpd.serve_forever()
+# --- PTB and Flask App Initialization ---
+ptb_app = Application.builder().token(TOKEN).build()
+flask_app = Flask(__name__)
 
 # --- Bot Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "שלום! שלח לי תמונה (או קובץ תמונה) ואפיק ממנה את הטקסט בעברית או באנגלית."
-    )
+    await update.message.reply_text("שלום! שלח לי תמונה (או קובץ תמונה) ואפיק ממנה את הטקסט.")
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
@@ -44,63 +34,34 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         photo_file = await update.message.photo[-1].get_file()
         file_path = f"{photo_file.file_id}.jpg"
         await photo_file.download_to_drive(file_path)
-        
         extracted_text = pytesseract.image_to_string(Image.open(file_path), lang='heb+eng')
-        
         os.remove(file_path)
-        
-        if extracted_text.strip():
-            await update.message.reply_text(extracted_text, quote=True)
-        else:
-            await update.message.reply_text("לא הצלחתי למצוא טקסט בתמונה.", quote=True)
-            
-    except Exception:
-        logger.error("Exception while handling image:", exc_info=True)
+        await update.message.reply_text(extracted_text or "לא נמצא טקסט.", quote=True)
+    except Exception as e:
+        logger.error(f"Error handling image: {e}")
         await update.message.reply_text("אירעה שגיאה בעיבוד התמונה.")
-
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        await update.message.reply_text("מעבד את הקובץ...", quote=True)
-        doc_file = await update.message.document.get_file()
-        file_path = f"{doc_file.file_id}.png"
-        await doc_file.download_to_drive(file_path)
-
-        extracted_text = pytesseract.image_to_string(Image.open(file_path), lang='heb+eng')
-        
-        os.remove(file_path)
-        
-        if extracted_text.strip():
-            await update.message.reply_text(extracted_text, quote=True)
-        else:
-            await update.message.reply_text("לא הצלחתי למצוא טקסט בקובץ.", quote=True)
-
-    except Exception:
-        logger.error("Exception while handling document:", exc_info=True)
-        await update.message.reply_text("אירעה שגיאה בעיבוד הקובץ. ודא שזהו קובץ תמונה.")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Exception while handling an update:", exc_info=context.error)
 
-# --- Main Application Runner ---
-def main() -> None:
-    if not TOKEN:
-        logger.fatal("FATAL: BOT_TOKEN environment variable not found!")
-        return
+# --- Flask Webhook Endpoint ---
+@flask_app.route(f"/{TOKEN}", methods=["POST"])
+def respond():
+    update = Update.de_json(request.get_json(force=True), ptb_app.bot)
+    asyncio.run(ptb_app.process_update(update))
+    return "ok"
 
-    keep_alive_thread = threading.Thread(target=run_keep_alive_server)
-    keep_alive_thread.daemon = True
-    keep_alive_thread.start()
-
-    application = Application.builder().token(TOKEN).build()
+# --- Main Setup Coroutine ---
+async def main():
+    ptb_app.add_error_handler(error_handler)
+    ptb_app.add_handler(CommandHandler("start", start))
+    ptb_app.add_handler(MessageHandler(filters.PHOTO, handle_image))
+    ptb_app.add_handler(MessageHandler(filters.Document.IMAGE, handle_image))
     
-    # Add all handlers
-    application.add_error_handler(error_handler)
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_image))
-    application.add_handler(MessageHandler(filters.Document.IMAGE, handle_document))
-    
-    logger.info("Bot starting with Polling...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    await ptb_app.initialize()
+    webhook_url = f"{APP_URL}/{TOKEN}"
+    await ptb_app.bot.set_webhook(url=webhook_url, allowed_updates=Update.ALL_TYPES)
+    logger.info(f"Webhook set to {webhook_url}")
 
-if __name__ == "__main__":
-    main()
+# Run the setup once when the app starts
+asyncio.run(main())
